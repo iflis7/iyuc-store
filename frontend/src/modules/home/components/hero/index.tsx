@@ -1,5 +1,5 @@
-import { Github } from "@medusajs/icons"
 import { Button, Heading } from "@medusajs/ui"
+import LocalizedClientLink from "@modules/common/components/localized-client-link"
 
 const Hero = () => {
   return (
@@ -10,24 +10,20 @@ const Hero = () => {
             level="h1"
             className="text-3xl leading-10 text-ui-fg-base font-normal"
           >
-            Ecommerce Starter Template
+            IYUC
           </Heading>
           <Heading
             level="h2"
             className="text-3xl leading-10 text-ui-fg-subtle font-normal"
           >
-            Powered by Medusa and Next.js
+            Wear the story. Anywhere.
           </Heading>
         </span>
-        <a
-          href="https://github.com/medusajs/nextjs-starter-medusa"
-          target="_blank"
-        >
+        <LocalizedClientLink href="/store">
           <Button variant="secondary">
-            View on GitHub
-            <Github />
+            Shop now
           </Button>
-        </a>
+        </LocalizedClientLink>
       </div>
     </div>
   )

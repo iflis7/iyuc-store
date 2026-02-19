@@ -1,6 +1,6 @@
 # IYUC Store
 
-Ecommerce stack: **backend** (Medusa) + **frontend** ([Medusa Next.js Starter](https://github.com/medusajs/nextjs-starter-medusa) – Next.js 15, React 19).
+Ecommerce for **IYUC** — Amazigh streetwear for the world. Backend (Medusa) + frontend (Next.js 15). Brand and marketing: [IYUC/Marketing](../Marketing/README.md).
 
 ## Layout
 

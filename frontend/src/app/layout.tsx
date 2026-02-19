@@ -4,6 +4,8 @@ import "styles/globals.css"
 
 export const metadata: Metadata = {
   metadataBase: new URL(getBaseURL()),
+  title: { default: "IYUC — Amazigh streetwear for the world", template: "%s | IYUC" },
+  description: "Streetwear with an Amazigh soul. For everyone, everywhere.",
 }
 
 export default function RootLayout(props: { children: React.ReactNode }) {
