@@ -32,7 +32,7 @@ First start can take 1–2 minutes while Next.js compiles.
 
 **Verify:** `./verify-storefront.sh` (waits for HTTP 200). If you get connection refused, run `docker compose logs storefront` and check for errors.
 
-See [README-DOCKER.md](./README-DOCKER.md) for Docker permissions, admin user creation, and stop command.
+See [README-DOCKER.md](./README-DOCKER.md) for Docker permissions, admin user creation, and stop command. **Using Cloudflare Tunnel for Admin?** See [README-CLOUDFLARE-TUNNEL.md](./README-CLOUDFLARE-TUNNEL.md) so login works (expose API on 9000 and set `MEDUSA_ADMIN_BACKEND_URL`).
 
 ## Push to GitHub
 

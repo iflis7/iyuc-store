@@ -46,8 +46,9 @@ services:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/medusa-store
       REDIS_URL: redis://redis:6379
       STORE_CORS: http://localhost:8000,http://localhost:3000,https://docs.medusajs.com
-      ADMIN_CORS: http://localhost:5173,http://localhost:9000,http://127.0.0.1:5173,http://127.0.0.1:9000,https://docs.medusajs.com
-      AUTH_CORS: http://localhost:5173,http://localhost:9000,http://127.0.0.1:5173,http://127.0.0.1:9000,https://docs.medusajs.com
+      # Include tunnel origin so Admin login works via Cloudflare Tunnel (update if tunnel URL changes)
+      ADMIN_CORS: http://localhost:5173,http://localhost:9000,http://127.0.0.1:5173,http://127.0.0.1:9000,https://docs.medusajs.com,https://speakers-watershed-deposit-algorithms.trycloudflare.com
+      AUTH_CORS: http://localhost:5173,http://localhost:9000,http://127.0.0.1:5173,http://127.0.0.1:9000,https://docs.medusajs.com,https://speakers-watershed-deposit-algorithms.trycloudflare.com
       JWT_SECRET: supersecret
       COOKIE_SECRET: supersecret
     env_file:
@@ -79,6 +80,26 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
+    networks:
+      - iyuc_store_network
+
+  # Cloudflare Tunnel: Medusa backend. API at /, Admin at /app. Get URL: docker compose logs cloudflared-backend
+  cloudflared-backend:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --url http://medusa:9000
+    depends_on:
+      - medusa
+    networks:
+      - iyuc_store_network
+
+  # Cloudflare Tunnel: Next.js storefront. Get URL: docker compose logs cloudflared-frontend
+  cloudflared-frontend:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --url http://storefront:3000
+    depends_on:
+      - storefront
     networks:
       - iyuc_store_network
 

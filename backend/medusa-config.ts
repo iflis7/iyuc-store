@@ -24,7 +24,7 @@ module.exports = defineConfig({
       server: {
         ...(typeof config?.server === 'object' && config.server !== null ? config.server : {}),
         host: '0.0.0.0',
-        allowedHosts: ['localhost', '.localhost', '127.0.0.1'],
+        allowedHosts: ['localhost', '.localhost', '127.0.0.1', '.trycloudflare.com'],
         hmr: {
           port: 5173,
           clientPort: 5173,
