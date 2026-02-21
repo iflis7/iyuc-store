@@ -13,6 +13,9 @@ RUN yarn install
 # Copy source
 COPY . .
 
+# Build admin so it is served as static assets (avoids Vite dev 404s in Docker)
+RUN yarn build
+
 EXPOSE 9000 5173
 
 CMD ["./start.sh"]

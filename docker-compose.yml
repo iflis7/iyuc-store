@@ -63,19 +63,17 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      # Dockerfile is copied into frontend/ by setup-frontend.sh from docker/frontend.Dockerfile
     container_name: iyuc_store_storefront
     restart: unless-stopped
     ports:
       - "3000:3000"
-    command: ["sh", "-c", "yarn dev --turbopack -H 0.0.0.0 -p 3000"]
     env_file:
       - frontend/.env
     environment:
       PORT: "3000"
-      HOSTNAME: "0.0.0.0"
-      # Required for product image URLs: rewrite localhost:9000 -> medusa:9000 so Next.js can fetch images
-      MEDUSA_BACKEND_URL: "http://medusa:9000"
+      # Browser must reach backend; use host so frontend at localhost:3000 can call localhost:9000
+      VITE_MEDUSA_BACKEND_URL: "http://localhost:9000"
+      VITE_MEDUSA_PUBLISHABLE_KEY: "pk_54d88ab42631189af590c17bdf7ee6496a426417a0813790c448262963eaa5e9"
     healthcheck:
       test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:3000', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))\""]
       start_period: 120s

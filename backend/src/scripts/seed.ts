@@ -623,7 +623,7 @@ export default async function seedDemoData({ container }: ExecArgs) {
     ...extra,
   });
 
-  await createProductsWorkflow(container).run({
+  const { result: createdProducts } = await createProductsWorkflow(container).run({
     input: {
       products: [
         productPayload({
@@ -770,6 +770,26 @@ export default async function seedDemoData({ container }: ExecArgs) {
       ],
     },
   });
+
+  // "New Arrivals" / Latest drops collection (handle "new") for storefront /collections/new
+  const newArrivalsHandle = "new";
+  const [existingNewArrivals] = await productModuleService.listAndCountProductCollections(
+    { handle: newArrivalsHandle },
+    { take: 1 }
+  );
+  if (!existingNewArrivals?.length) {
+    const products = await productModuleService.listProducts({}, { take: 10 });
+    const productIds = (Array.isArray(products) ? products : []).map((p: { id: string }) => p.id).filter(Boolean).slice(0, 6);
+    await productModuleService.createProductCollections([
+      {
+        title: "New Arrivals",
+        handle: newArrivalsHandle,
+        ...(productIds.length ? { product_ids: productIds } : {}),
+      },
+    ]);
+    logger.info("Created 'New Arrivals' collection (handle: new) and linked products.");
+  }
+
   logger.info("Finished seeding product data.");
 
   logger.info("Seeding inventory levels.");
