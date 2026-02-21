@@ -2,8 +2,16 @@
 
 import { sdk } from "@lib/config"
 import medusaError from "@lib/util/medusa-error"
-import { getAuthHeaders, getCacheOptions } from "./cookies"
+import {
+  getAuthHeaders,
+  getCacheOptions,
+  removeAuthToken,
+} from "./cookies"
 import { HttpTypes } from "@medusajs/types"
+
+function is401(err: unknown): boolean {
+  return (err as { response?: { status?: number } })?.response?.status === 401
+}
 
 export const retrieveOrder = async (id: string) => {
   const headers = {
@@ -14,19 +22,28 @@ export const retrieveOrder = async (id: string) => {
     ...(await getCacheOptions("orders")),
   }
 
-  return sdk.client
-    .fetch<HttpTypes.StoreOrderResponse>(`/store/orders/${id}`, {
-      method: "GET",
-      query: {
-        fields:
-          "*payment_collections.payments,*items,*items.metadata,*items.variant,*items.product",
-      },
-      headers,
-      next,
-      cache: "force-cache",
-    })
-    .then(({ order }) => order)
-    .catch((err) => medusaError(err))
+  try {
+    const { order } = await sdk.client.fetch<HttpTypes.StoreOrderResponse>(
+      `/store/orders/${id}`,
+      {
+        method: "GET",
+        query: {
+          fields:
+            "*payment_collections.payments,*items,*items.metadata,*items.variant,*items.product",
+        },
+        headers,
+        next,
+        cache: "force-cache",
+      }
+    )
+    return order
+  } catch (err) {
+    if (is401(err)) {
+      await removeAuthToken()
+      return null
+    }
+    medusaError(err)
+  }
 }
 
 export const listOrders = async (
@@ -42,22 +59,31 @@ export const listOrders = async (
     ...(await getCacheOptions("orders")),
   }
 
-  return sdk.client
-    .fetch<HttpTypes.StoreOrderListResponse>(`/store/orders`, {
-      method: "GET",
-      query: {
-        limit,
-        offset,
-        order: "-created_at",
-        fields: "*items,+items.metadata,*items.variant,*items.product",
-        ...filters,
-      },
-      headers,
-      next,
-      cache: "force-cache",
-    })
-    .then(({ orders }) => orders)
-    .catch((err) => medusaError(err))
+  try {
+    const { orders } = await sdk.client.fetch<HttpTypes.StoreOrderListResponse>(
+      `/store/orders`,
+      {
+        method: "GET",
+        query: {
+          limit,
+          offset,
+          order: "-created_at",
+          fields: "*items,+items.metadata,*items.variant,*items.product",
+          ...filters,
+        },
+        headers,
+        next,
+        cache: "force-cache",
+      }
+    )
+    return orders
+  } catch (err) {
+    if (is401(err)) {
+      await removeAuthToken()
+      return []
+    }
+    medusaError(err)
+  }
 }
 
 export const createTransferRequest = async (

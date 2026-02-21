@@ -1,9 +1,13 @@
 import { Metadata } from "next"
 import { notFound } from "next/navigation"
 import { listProducts } from "@lib/data/products"
+import { getMedusaImageUrl } from "@lib/util/get-medusa-image-url"
 import { getRegion, listRegions } from "@lib/data/regions"
 import ProductTemplate from "@modules/products/templates"
 import { HttpTypes } from "@medusajs/types"
+
+// Ensure product page is rendered at request time so MEDUSA_BACKEND_URL is available for image URL rewrite
+export const dynamic = "force-dynamic"
 
 type Props = {
   params: Promise<{ countryCode: string; handle: string }>
@@ -114,7 +118,12 @@ export default async function ProductPage(props: Props) {
     queryParams: { handle: params.handle },
   }).then(({ response }) => response.products[0])
 
-  const images = getImagesForVariant(pricedProduct, selectedVariantId)
+  const rawImages = getImagesForVariant(pricedProduct, selectedVariantId)
+  const images =
+    rawImages?.map((img) => ({
+      ...img,
+      url: getMedusaImageUrl(img.url) ?? img.url,
+    })) ?? []
 
   if (!pricedProduct) {
     notFound()

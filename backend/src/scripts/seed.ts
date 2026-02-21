@@ -14,7 +14,9 @@ import {
   createInventoryLevelsWorkflow,
   createProductCategoriesWorkflow,
   createProductsWorkflow,
+  createRefundReasonsWorkflow,
   createRegionsWorkflow,
+  createReturnReasonsStep,
   createSalesChannelsWorkflow,
   createShippingOptionsWorkflow,
   createShippingProfilesWorkflow,
@@ -55,35 +57,53 @@ const updateStoreCurrencies = createWorkflow(
   }
 );
 
+const seedReturnReasonsWorkflow = createWorkflow(
+  "seed-return-reasons",
+  () => {
+    const reasons = createReturnReasonsStep([
+      { value: "wrong_size", label: "Wrong size" },
+      { value: "changed_mind", label: "Changed mind" },
+      { value: "damaged_defective", label: "Damaged or defective" },
+      { value: "wrong_item", label: "Wrong item received" },
+      { value: "not_as_described", label: "Not as described" },
+      { value: "other", label: "Other" },
+    ]);
+    return new WorkflowResponse(reasons);
+  }
+);
+
 export default async function seedDemoData({ container }: ExecArgs) {
   const logger = container.resolve(ContainerRegistrationKeys.LOGGER);
   const link = container.resolve(ContainerRegistrationKeys.LINK);
   const query = container.resolve(ContainerRegistrationKeys.QUERY);
   const fulfillmentModuleService = container.resolve(Modules.FULFILLMENT);
+  const productModuleService = container.resolve(Modules.PRODUCT);
   const regionModuleService = container.resolve(Modules.REGION);
   const salesChannelModuleService = container.resolve(Modules.SALES_CHANNEL);
   const storeModuleService = container.resolve(Modules.STORE);
 
-  const countries = ["gb", "de", "dk", "se", "fr", "es", "it"];
+  const europeCountries = ["gb", "de", "dk", "se", "fr", "es", "it"];
+  const allCountries = [...europeCountries, "ca"];
 
   try {
   logger.info("Seeding store data...");
   const [store] = await storeModuleService.listStores();
+  const salesChannelName = "IYUC Store";
   let defaultSalesChannel = await salesChannelModuleService.listSalesChannels({
-    name: "Default Sales Channel",
+    name: salesChannelName,
   });
 
   if (!defaultSalesChannel.length) {
-    // create the default sales channel
+    defaultSalesChannel = await salesChannelModuleService.listSalesChannels({
+      name: "Default Sales Channel",
+    });
+  }
+  if (!defaultSalesChannel.length) {
     const { result: salesChannelResult } = await createSalesChannelsWorkflow(
       container
     ).run({
       input: {
-        salesChannelsData: [
-          {
-            name: "Default Sales Channel",
-          },
-        ],
+        salesChannelsData: [{ name: salesChannelName }],
       },
     });
     defaultSalesChannel = salesChannelResult;
@@ -100,6 +120,9 @@ export default async function seedDemoData({ container }: ExecArgs) {
         {
           currency_code: "usd",
         },
+        {
+          currency_code: "cad",
+        },
       ],
     },
   });
@@ -114,6 +137,7 @@ export default async function seedDemoData({ container }: ExecArgs) {
   });
   logger.info("Seeding region data...");
   let region: { id: string };
+  let regionCanada: { id: string } | null = null;
   try {
     const { result: regionResult } = await createRegionsWorkflow(container).run({
       input: {
@@ -121,22 +145,31 @@ export default async function seedDemoData({ container }: ExecArgs) {
           {
             name: "Europe",
             currency_code: "eur",
-            countries,
+            countries: europeCountries,
+            payment_providers: ["pp_system_default"],
+          },
+          {
+            name: "North America",
+            currency_code: "cad",
+            countries: ["ca"],
             payment_providers: ["pp_system_default"],
           },
         ],
       },
     });
     region = regionResult[0];
+    regionCanada = regionResult[1] ?? null;
     logger.info("Finished seeding regions.");
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     const full = typeof err === "object" && err !== null ? JSON.stringify(err) : msg;
     if (msg.includes("already assigned") || full.includes("already assigned")) {
       const existing = await regionModuleService.listRegions({});
-      const first = Array.isArray(existing) ? existing[0] : existing?.[0];
+      const list = Array.isArray(existing) ? existing : existing ? [existing] : [];
+      const first = list[0];
       if (!first) throw new Error("No region found and create failed.");
       region = first;
+      regionCanada = list[1] ?? null;
       logger.info("Regions already exist, using existing.");
     } else {
       throw err;
@@ -146,7 +179,7 @@ export default async function seedDemoData({ container }: ExecArgs) {
   logger.info("Seeding tax regions...");
   try {
     await createTaxRegionsWorkflow(container).run({
-      input: countries.map((country_code) => ({
+      input: allCountries.map((country_code) => ({
         country_code,
         provider_id: "tp_system",
       })),
@@ -172,7 +205,7 @@ export default async function seedDemoData({ container }: ExecArgs) {
     input: {
       locations: [
         {
-          name: "European Warehouse",
+          name: "IYUC Warehouse",
           address: {
             city: "Copenhagen",
             country_code: "DK",
@@ -224,40 +257,20 @@ export default async function seedDemoData({ container }: ExecArgs) {
   }
 
   const fulfillmentSet = await fulfillmentModuleService.createFulfillmentSets({
-    name: "European Warehouse delivery",
+    name: "IYUC Warehouse delivery",
     type: "shipping",
     service_zones: [
       {
         name: "Europe",
+        geo_zones: europeCountries.map((country_code) => ({
+          country_code,
+          type: "country" as const,
+        })),
+      },
+      {
+        name: "North America",
         geo_zones: [
-          {
-            country_code: "gb",
-            type: "country",
-          },
-          {
-            country_code: "de",
-            type: "country",
-          },
-          {
-            country_code: "dk",
-            type: "country",
-          },
-          {
-            country_code: "se",
-            type: "country",
-          },
-          {
-            country_code: "fr",
-            type: "country",
-          },
-          {
-            country_code: "es",
-            type: "country",
-          },
-          {
-            country_code: "it",
-            type: "country",
-          },
+          { country_code: "ca", type: "country" },
         ],
       },
     ],
@@ -272,6 +285,25 @@ export default async function seedDemoData({ container }: ExecArgs) {
     },
   });
 
+  const standardPrices = [
+    { currency_code: "usd", amount: 10 },
+    { currency_code: "eur", amount: 10 },
+    { currency_code: "cad", amount: 12 },
+    { region_id: region.id, amount: 10 },
+  ];
+  if (regionCanada) {
+    standardPrices.push({ region_id: regionCanada.id, amount: 12 });
+  }
+  const expressPrices = [
+    { currency_code: "usd", amount: 20 },
+    { currency_code: "eur", amount: 20 },
+    { currency_code: "cad", amount: 24 },
+    { region_id: region.id, amount: 20 },
+  ];
+  if (regionCanada) {
+    expressPrices.push({ region_id: regionCanada.id, amount: 24 });
+  }
+
   await createShippingOptionsWorkflow(container).run({
     input: [
       {
@@ -285,31 +317,10 @@ export default async function seedDemoData({ container }: ExecArgs) {
           description: "Ship in 2-3 days.",
           code: "standard",
         },
-        prices: [
-          {
-            currency_code: "usd",
-            amount: 10,
-          },
-          {
-            currency_code: "eur",
-            amount: 10,
-          },
-          {
-            region_id: region.id,
-            amount: 10,
-          },
-        ],
+        prices: standardPrices,
         rules: [
-          {
-            attribute: "enabled_in_store",
-            value: "true",
-            operator: "eq",
-          },
-          {
-            attribute: "is_return",
-            value: "false",
-            operator: "eq",
-          },
+          { attribute: "enabled_in_store", value: "true", operator: "eq" },
+          { attribute: "is_return", value: "false", operator: "eq" },
         ],
       },
       {
@@ -323,33 +334,36 @@ export default async function seedDemoData({ container }: ExecArgs) {
           description: "Ship in 24 hours.",
           code: "express",
         },
-        prices: [
-          {
-            currency_code: "usd",
-            amount: 10,
-          },
-          {
-            currency_code: "eur",
-            amount: 10,
-          },
-          {
-            region_id: region.id,
-            amount: 10,
-          },
-        ],
+        prices: expressPrices,
         rules: [
-          {
-            attribute: "enabled_in_store",
-            value: "true",
-            operator: "eq",
-          },
-          {
-            attribute: "is_return",
-            value: "false",
-            operator: "eq",
-          },
+          { attribute: "enabled_in_store", value: "true", operator: "eq" },
+          { attribute: "is_return", value: "false", operator: "eq" },
         ],
       },
+      ...(fulfillmentSet.service_zones[1]
+        ? [
+            {
+              name: "Standard Shipping (North America)",
+              price_type: "flat",
+              provider_id: "manual_manual",
+              service_zone_id: fulfillmentSet.service_zones[1].id,
+              shipping_profile_id: shippingProfile.id,
+              type: {
+                label: "Standard",
+                description: "Ship in 3-5 days.",
+                code: "standard",
+              },
+              prices: [
+                { currency_code: "cad", amount: 12 },
+                ...(regionCanada ? [{ region_id: regionCanada.id, amount: 12 }] : []),
+              ],
+              rules: [
+                { attribute: "enabled_in_store", value: "true", operator: "eq" },
+                { attribute: "is_return", value: "false", operator: "eq" },
+              ],
+            },
+          ]
+        : []),
     ],
   });
   logger.info("Finished seeding fulfillment data.");
@@ -400,6 +414,43 @@ export default async function seedDemoData({ container }: ExecArgs) {
   });
   logger.info("Finished seeding publishable API key data.");
 
+  logger.info("Seeding return reasons...");
+  try {
+    await seedReturnReasonsWorkflow(container).run();
+    logger.info("Finished seeding return reasons.");
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("already exists") || msg.includes("duplicate")) {
+      logger.info("Return reasons already exist, skipping.");
+    } else {
+      throw err;
+    }
+  }
+
+  logger.info("Seeding refund reasons...");
+  try {
+    await createRefundReasonsWorkflow(container).run({
+      input: {
+        data: [
+          { label: "Damaged or defective", code: "damaged_defective" },
+          { label: "Wrong item sent", code: "wrong_item" },
+          { label: "Customer request", code: "customer_request" },
+          { label: "Duplicate order", code: "duplicate" },
+          { label: "Quality issue", code: "quality_issue" },
+          { label: "Other", code: "other" },
+        ],
+      },
+    });
+    logger.info("Finished seeding refund reasons.");
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("already exists") || msg.includes("duplicate")) {
+      logger.info("Refund reasons already exist, skipping.");
+    } else {
+      throw err;
+    }
+  }
+
   logger.info("Seeding product data...");
 
   const { result: categoryResult } = await createProductCategoriesWorkflow(
@@ -407,519 +458,315 @@ export default async function seedDemoData({ container }: ExecArgs) {
   ).run({
     input: {
       product_categories: [
-        {
-          name: "Shirts",
-          is_active: true,
-        },
-        {
-          name: "Sweatshirts",
-          is_active: true,
-        },
-        {
-          name: "Pants",
-          is_active: true,
-        },
-        {
-          name: "Merch",
-          is_active: true,
-        },
+        { name: "Tops", is_active: true },
+        { name: "Bottoms", is_active: true },
+        { name: "Statement", is_active: true },
+        { name: "Footwear", is_active: true },
+        { name: "Accessory", is_active: true },
       ],
     },
+  });
+
+  const topsId = categoryResult.find((c) => c.name === "Tops")!.id;
+  const bottomsId = categoryResult.find((c) => c.name === "Bottoms")!.id;
+  const statementId = categoryResult.find((c) => c.name === "Statement")!.id;
+  const footwearId = categoryResult.find((c) => c.name === "Footwear")!.id;
+  const accessoryId = categoryResult.find((c) => c.name === "Accessory")!.id;
+
+  logger.info("Seeding product tags...");
+  const tagValues = [
+    "little-warriors",
+    "collection-01",
+    "kids",
+    "streetwear",
+    "amazigh",
+    "limited-drop",
+  ];
+  const existingTags = (await productModuleService.listProductTags({})) as { id: string; value: string }[];
+  const existingValues = new Set(existingTags?.map((t) => t.value) ?? []);
+  const toCreate = tagValues.filter((v) => !existingValues.has(v));
+  if (toCreate.length) {
+    await productModuleService.createProductTags(toCreate.map((value) => ({ value })));
+  }
+  const allTagsRaw = await productModuleService.listProductTags({});
+  const allTags = Array.isArray(allTagsRaw) ? allTagsRaw : (allTagsRaw as { data?: { id: string; value: string }[] })?.data ?? [];
+  const productTagIds = (allTags as { id: string }[]).map((t) => t.id);
+  logger.info("Finished seeding product tags.");
+
+  logger.info("Seeding product types...");
+  const productTypeValues = ["physical", "apparel"];
+  const toProductTypeArray = (raw: unknown): { id: string; value: string }[] => {
+    if (Array.isArray(raw)) return raw as { id: string; value: string }[];
+    const o = raw as { data?: unknown[]; product_types?: unknown[] };
+    return (o?.data ?? o?.product_types ?? []) as { id: string; value: string }[];
+  };
+  const existingTypesRaw = await productModuleService.listProductTypes({});
+  const existingTypes = toProductTypeArray(existingTypesRaw);
+  const existingTypeValues = new Set(existingTypes.map((t) => t.value));
+  const typesToCreate = productTypeValues.filter((v) => !existingTypeValues.has(v));
+  if (typesToCreate.length) {
+    await productModuleService.createProductTypes(typesToCreate.map((value) => ({ value })));
+  }
+  const allTypesRaw = await productModuleService.listProductTypes({});
+  const allTypes = toProductTypeArray(allTypesRaw);
+  const physicalTypeId = allTypes.find((t) => t.value === "physical")?.id ?? null;
+  logger.info("Finished seeding product types.");
+
+  const variantPrices = (usd: number, eur: number, cad: number) => [
+    { currency_code: "usd", amount: usd },
+    { currency_code: "eur", amount: eur },
+    { currency_code: "cad", amount: cad },
+  ];
+
+  const placeholderImage = (seed: string) => ({
+    url: `https://picsum.photos/seed/${seed}/800/800`,
+  });
+
+  const sizes = ["S", "M", "L"];
+  const teeSsColors = [
+    { name: "Sand", code: "SND" },
+    { name: "Clay Red", code: "CLY" },
+    { name: "Midnight Black", code: "BLK" },
+  ];
+  const teeLsColors = [
+    { name: "Sand", code: "SND" },
+    { name: "Indigo", code: "IND" },
+  ];
+  const utilityColors = [
+    { name: "Olive", code: "OLV" },
+    { name: "Midnight Black", code: "BLK" },
+  ];
+  const sandBlackColors = [
+    { name: "Sand", code: "SND" },
+    { name: "Midnight Black", code: "BLK" },
+  ];
+  const indigoBlackColors = [
+    { name: "Indigo", code: "IND" },
+    { name: "Midnight Black", code: "BLK" },
+  ];
+  const sneakerColors = [
+    { name: "Sand/Clay", code: "SNDCLY" },
+    { name: "Black/Cream", code: "BLKCRM" },
+  ];
+  const beanieColors = [
+    { name: "Midnight Black", code: "BLK" },
+    { name: "Clay Red", code: "CLY" },
+    { name: "Olive", code: "OLV" },
+  ];
+
+  const teeSsVariants = sizes.flatMap((size) =>
+    teeSsColors.map((c) => ({
+      title: `${size} / ${c.name}`,
+      sku: `IYUC-01-TP-ESS-SS-${c.code}-${size}`,
+      options: { Size: size, Color: c.name },
+      prices: variantPrices(65, 60, 88),
+    }))
+  );
+  const teeLsVariants = sizes.flatMap((size) =>
+    teeLsColors.map((c) => ({
+      title: `${size} / ${c.name}`,
+      sku: `IYUC-01-TP-ESS-LS-${c.code}-${size}`,
+      options: { Size: size, Color: c.name },
+      prices: variantPrices(75, 70, 102),
+    }))
+  );
+  const utilityVariants = sizes.flatMap((size) =>
+    utilityColors.map((c) => ({
+      title: `${size} / ${c.name}`,
+      sku: `IYUC-01-BT-UTL-${c.code}-${size}`,
+      options: { Size: size, Color: c.name },
+      prices: variantPrices(95, 88, 130),
+    }))
+  );
+  const joggerVariants = sizes.flatMap((size) =>
+    sandBlackColors.map((c) => ({
+      title: `${size} / ${c.name}`,
+      sku: `IYUC-01-BT-JOG-${c.code}-${size}`,
+      options: { Size: size, Color: c.name },
+      prices: variantPrices(85, 78, 118),
+    }))
+  );
+  const burnousLongVariants = sizes.flatMap((size) =>
+    indigoBlackColors.map((c) => ({
+      title: `${size} / ${c.name}`,
+      sku: `IYUC-01-JK-BRN-L-${c.code}-${size}`,
+      options: { Size: size, Color: c.name },
+      prices: variantPrices(140, 130, 192),
+    }))
+  );
+  const burnousShortVariants = sizes.flatMap((size) =>
+    sandBlackColors.map((c) => ({
+      title: `${size} / ${c.name}`,
+      sku: `IYUC-01-JK-BRN-S-${c.code}-${size}`,
+      options: { Size: size, Color: c.name },
+      prices: variantPrices(140, 130, 192),
+    }))
+  );
+  const sneakerVariants = sizes.flatMap((size) =>
+    sneakerColors.map((c) => ({
+      title: `${size} / ${c.name}`,
+      sku: `IYUC-01-SH-DSN-${c.code}-${size}`,
+      options: { Size: size, Color: c.name },
+      prices: variantPrices(120, 110, 165),
+    }))
+  );
+  const beanieVariants = beanieColors.map((c) => ({
+    title: c.name,
+    sku: `IYUC-01-AC-BEN-${c.code}-OS`,
+    options: { Color: c.name },
+    prices: variantPrices(35, 32, 48),
+  }));
+
+  const salesChannelPayload = [{ id: defaultSalesChannel[0].id }];
+  const productPayload = (extra: Record<string, unknown> = {}) => ({
+    ...(physicalTypeId ? { type_id: physicalTypeId } : {}),
+    ...extra,
   });
 
   await createProductsWorkflow(container).run({
     input: {
       products: [
-        {
-          title: "Medusa T-Shirt",
-          category_ids: [
-            categoryResult.find((cat) => cat.name === "Shirts")!.id,
-          ],
+        productPayload({
+          title: "ⵣ Essential Tee (Short Sleeve)",
+          category_ids: [topsId],
+          tag_ids: productTagIds,
           description:
-            "Reimagine the feeling of a classic T-shirt. With our cotton T-shirts, everyday essentials no longer have to be ordinary.",
-          handle: "t-shirt",
+            "Amazigh heritage in one symbol. Oversized fit, 220 GSM organic cotton, small ⵣ embroidery on chest and minimal geometric line on back. Sand, Clay Red, or Midnight Black. IYUC — Wear the story. Anywhere.",
+          handle: "essential-tee-ss",
+          weight: 220,
+          status: ProductStatus.PUBLISHED,
+          shipping_profile_id: shippingProfile.id,
+          images: [placeholderImage("iyuc-tee-ss-1"), placeholderImage("iyuc-tee-ss-2")],
+          options: [
+            { title: "Size", values: sizes },
+            { title: "Color", values: teeSsColors.map((c) => c.name) },
+          ],
+          variants: teeSsVariants,
+          sales_channels: salesChannelPayload,
+        }),
+        productPayload({
+          title: "ⵣ Essential Tee (Long Sleeve)",
+          category_ids: [topsId],
+          tag_ids: productTagIds,
+          description:
+            "Same story, long sleeve. Ribbed cuffs, neutral base (Sand or Indigo). Small chest ⵣ, back pattern line. Amazigh culture, for the world.",
+          handle: "essential-tee-ls",
+          weight: 240,
+          status: ProductStatus.PUBLISHED,
+          shipping_profile_id: shippingProfile.id,
+          images: [placeholderImage("iyuc-tee-ls-1"), placeholderImage("iyuc-tee-ls-2")],
+          options: [
+            { title: "Size", values: sizes },
+            { title: "Color", values: teeLsColors.map((c) => c.name) },
+          ],
+          variants: teeLsVariants,
+          sales_channels: salesChannelPayload,
+        }),
+        productPayload({
+          title: "Desert Utility Pants",
+          category_ids: [bottomsId],
+          tag_ids: productTagIds,
+          description:
+            "Relaxed cargo fit. Side pocket with woven Amazigh patch, adjustable waist. Olive or Midnight Black. Streetwear with an Amazigh soul.",
+          handle: "desert-utility-pants",
+          weight: 350,
+          status: ProductStatus.PUBLISHED,
+          shipping_profile_id: shippingProfile.id,
+          images: [placeholderImage("iyuc-pants-1"), placeholderImage("iyuc-pants-2")],
+          options: [
+            { title: "Size", values: sizes },
+            { title: "Color", values: utilityColors.map((c) => c.name) },
+          ],
+          variants: utilityVariants,
+          sales_channels: salesChannelPayload,
+        }),
+        productPayload({
+          title: "Clay Joggers",
+          category_ids: [bottomsId],
+          tag_ids: productTagIds,
+          description:
+            "400 GSM brushed fleece, minimal embroidery near ankle. Sand or Black. Comfort first, symbol subtle. For everyone, everywhere.",
+          handle: "clay-joggers",
           weight: 400,
           status: ProductStatus.PUBLISHED,
           shipping_profile_id: shippingProfile.id,
-          images: [
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/tee-black-front.png",
-            },
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/tee-black-back.png",
-            },
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/tee-white-front.png",
-            },
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/tee-white-back.png",
-            },
-          ],
+          images: [placeholderImage("iyuc-joggers-1"), placeholderImage("iyuc-joggers-2")],
           options: [
-            {
-              title: "Size",
-              values: ["S", "M", "L", "XL"],
-            },
-            {
-              title: "Color",
-              values: ["Black", "White"],
-            },
+            { title: "Size", values: sizes },
+            { title: "Color", values: sandBlackColors.map((c) => c.name) },
           ],
-          variants: [
-            {
-              title: "S / Black",
-              sku: "SHIRT-S-BLACK",
-              options: {
-                Size: "S",
-                Color: "Black",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "S / White",
-              sku: "SHIRT-S-WHITE",
-              options: {
-                Size: "S",
-                Color: "White",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "M / Black",
-              sku: "SHIRT-M-BLACK",
-              options: {
-                Size: "M",
-                Color: "Black",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "M / White",
-              sku: "SHIRT-M-WHITE",
-              options: {
-                Size: "M",
-                Color: "White",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "L / Black",
-              sku: "SHIRT-L-BLACK",
-              options: {
-                Size: "L",
-                Color: "Black",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "L / White",
-              sku: "SHIRT-L-WHITE",
-              options: {
-                Size: "L",
-                Color: "White",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "XL / Black",
-              sku: "SHIRT-XL-BLACK",
-              options: {
-                Size: "XL",
-                Color: "Black",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "XL / White",
-              sku: "SHIRT-XL-WHITE",
-              options: {
-                Size: "XL",
-                Color: "White",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-          ],
-          sales_channels: [
-            {
-              id: defaultSalesChannel[0].id,
-            },
-          ],
-        },
-        {
-          title: "Medusa Sweatshirt",
-          category_ids: [
-            categoryResult.find((cat) => cat.name === "Sweatshirts")!.id,
-          ],
+          variants: joggerVariants,
+          sales_channels: salesChannelPayload,
+        }),
+        productPayload({
+          title: "Modern Burnous Jacket (Long)",
+          category_ids: [statementId],
+          tag_ids: productTagIds,
           description:
-            "Reimagine the feeling of a classic sweatshirt. With our cotton sweatshirt, everyday essentials no longer have to be ordinary.",
-          handle: "sweatshirt",
+            "Hero piece. Structured hood, clean drape, minimal front closure, subtle geometric lining. Indigo or Black. From the mountain to the city.",
+          handle: "modern-burnous-long",
+          weight: 450,
+          status: ProductStatus.PUBLISHED,
+          shipping_profile_id: shippingProfile.id,
+          images: [placeholderImage("iyuc-burnous-long-1"), placeholderImage("iyuc-burnous-long-2")],
+          options: [
+            { title: "Size", values: sizes },
+            { title: "Color", values: indigoBlackColors.map((c) => c.name) },
+          ],
+          variants: burnousLongVariants,
+          sales_channels: salesChannelPayload,
+        }),
+        productPayload({
+          title: "Modern Burnous Jacket (Short)",
+          category_ids: [statementId],
+          tag_ids: productTagIds,
+          description:
+            "Same language, cropped. Sand or Black. Layer over tees and joggers. Little Warriors.",
+          handle: "modern-burnous-short",
           weight: 400,
           status: ProductStatus.PUBLISHED,
           shipping_profile_id: shippingProfile.id,
-          images: [
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/sweatshirt-vintage-front.png",
-            },
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/sweatshirt-vintage-back.png",
-            },
-          ],
+          images: [placeholderImage("iyuc-burnous-short-1"), placeholderImage("iyuc-burnous-short-2")],
           options: [
-            {
-              title: "Size",
-              values: ["S", "M", "L", "XL"],
-            },
+            { title: "Size", values: sizes },
+            { title: "Color", values: sandBlackColors.map((c) => c.name) },
           ],
-          variants: [
-            {
-              title: "S",
-              sku: "SWEATSHIRT-S",
-              options: {
-                Size: "S",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "M",
-              sku: "SWEATSHIRT-M",
-              options: {
-                Size: "M",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "L",
-              sku: "SWEATSHIRT-L",
-              options: {
-                Size: "L",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "XL",
-              sku: "SWEATSHIRT-XL",
-              options: {
-                Size: "XL",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-          ],
-          sales_channels: [
-            {
-              id: defaultSalesChannel[0].id,
-            },
-          ],
-        },
-        {
-          title: "Medusa Sweatpants",
-          category_ids: [
-            categoryResult.find((cat) => cat.name === "Pants")!.id,
-          ],
+          variants: burnousShortVariants,
+          sales_channels: salesChannelPayload,
+        }),
+        productPayload({
+          title: "IYUC Desert Sneakers",
+          category_ids: [footwearId],
+          tag_ids: productTagIds,
           description:
-            "Reimagine the feeling of classic sweatpants. With our cotton sweatpants, everyday essentials no longer have to be ordinary.",
-          handle: "sweatpants",
-          weight: 400,
+            "Minimal low-top. Neutral suede + cotton canvas, embossed ⵣ on heel. Sand/Clay or Black/Cream. Wear the story.",
+          handle: "iyuc-desert-sneakers",
+          weight: 380,
           status: ProductStatus.PUBLISHED,
           shipping_profile_id: shippingProfile.id,
-          images: [
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/sweatpants-gray-front.png",
-            },
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/sweatpants-gray-back.png",
-            },
-          ],
+          images: [placeholderImage("iyuc-sneakers-1"), placeholderImage("iyuc-sneakers-2")],
           options: [
-            {
-              title: "Size",
-              values: ["S", "M", "L", "XL"],
-            },
+            { title: "Size", values: sizes },
+            { title: "Color", values: sneakerColors.map((c) => c.name) },
           ],
-          variants: [
-            {
-              title: "S",
-              sku: "SWEATPANTS-S",
-              options: {
-                Size: "S",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "M",
-              sku: "SWEATPANTS-M",
-              options: {
-                Size: "M",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "L",
-              sku: "SWEATPANTS-L",
-              options: {
-                Size: "L",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "XL",
-              sku: "SWEATPANTS-XL",
-              options: {
-                Size: "XL",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-          ],
-          sales_channels: [
-            {
-              id: defaultSalesChannel[0].id,
-            },
-          ],
-        },
-        {
-          title: "Medusa Shorts",
-          category_ids: [
-            categoryResult.find((cat) => cat.name === "Merch")!.id,
-          ],
+          variants: sneakerVariants,
+          sales_channels: salesChannelPayload,
+        }),
+        productPayload({
+          title: "Amazigh Beanie",
+          category_ids: [accessoryId],
+          tag_ids: productTagIds,
           description:
-            "Reimagine the feeling of classic shorts. With our cotton shorts, everyday essentials no longer have to be ordinary.",
-          handle: "shorts",
-          weight: 400,
+            "One main symbol, one color. Black, Clay Red, or Olive. Soft knit, unisex. For the next generation.",
+          handle: "amazigh-beanie",
+          weight: 80,
           status: ProductStatus.PUBLISHED,
           shipping_profile_id: shippingProfile.id,
-          images: [
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/shorts-vintage-front.png",
-            },
-            {
-              url: "https://medusa-public-images.s3.eu-west-1.amazonaws.com/shorts-vintage-back.png",
-            },
-          ],
-          options: [
-            {
-              title: "Size",
-              values: ["S", "M", "L", "XL"],
-            },
-          ],
-          variants: [
-            {
-              title: "S",
-              sku: "SHORTS-S",
-              options: {
-                Size: "S",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "M",
-              sku: "SHORTS-M",
-              options: {
-                Size: "M",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "L",
-              sku: "SHORTS-L",
-              options: {
-                Size: "L",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-            {
-              title: "XL",
-              sku: "SHORTS-XL",
-              options: {
-                Size: "XL",
-              },
-              prices: [
-                {
-                  amount: 10,
-                  currency_code: "eur",
-                },
-                {
-                  amount: 15,
-                  currency_code: "usd",
-                },
-              ],
-            },
-          ],
-          sales_channels: [
-            {
-              id: defaultSalesChannel[0].id,
-            },
-          ],
-        },
+          images: [placeholderImage("iyuc-beanie-1"), placeholderImage("iyuc-beanie-2")],
+          options: [{ title: "Color", values: beanieColors.map((c) => c.name) }],
+          variants: beanieVariants,
+          sales_channels: salesChannelPayload,
+        }),
       ],
     },
   });

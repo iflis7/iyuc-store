@@ -1,0 +1,12 @@
+[
+  {
+    "title": "ⵣ Essential Tee (Short Sleeve)",
+    "handle": "essential-tee-ss",
+    "description": "Amazigh heritage in one symbol. Oversized fit, 220 GSM organic cotton.",
+    "status": "published",
+    "options": [
+      { "title": "Size", "values": ["S", "M", "L"] },
+      { "title": "Color", "values": ["Sand", "Clay Red", "Midnight Black"] }
+    ]
+  }
+]

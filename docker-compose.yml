@@ -74,6 +74,8 @@ services:
     environment:
       PORT: "3000"
       HOSTNAME: "0.0.0.0"
+      # Required for product image URLs: rewrite localhost:9000 -> medusa:9000 so Next.js can fetch images
+      MEDUSA_BACKEND_URL: "http://medusa:9000"
     healthcheck:
       test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:3000', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))\""]
       start_period: 120s

@@ -29,8 +29,10 @@ export const retrieveCustomer =
       ...(await getCacheOptions("customers")),
     }
 
-    return await sdk.client
-      .fetch<{ customer: HttpTypes.StoreCustomer }>(`/store/customers/me`, {
+    try {
+      const { customer } = await sdk.client.fetch<{
+        customer: HttpTypes.StoreCustomer
+      }>(`/store/customers/me`, {
         method: "GET",
         query: {
           fields: "*orders",
@@ -39,8 +41,14 @@ export const retrieveCustomer =
         next,
         cache: "force-cache",
       })
-      .then(({ customer }) => customer)
-      .catch(() => null)
+      return customer
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status
+      if (status === 401) {
+        await removeAuthToken()
+      }
+      return null
+    }
   }
 
 export const updateCustomer = async (body: HttpTypes.StoreUpdateCustomer) => {
